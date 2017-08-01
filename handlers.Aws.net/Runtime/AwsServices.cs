@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace handlers.Aws.net
+namespace Synapse.Aws.Core
 {
-    public class Class1
+    public partial class AwsServices
     {
     }
 }

@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26430.16
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "handlers.Aws.net", "handlers.Aws.net\handlers.Aws.net.csproj", "{91F5E49F-8092-41C5-AB21-1209BC68EF93}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Synapse.Aws.Core", "handlers.Aws.net\Synapse.Aws.Core.csproj", "{91F5E49F-8092-41C5-AB21-1209BC68EF93}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
