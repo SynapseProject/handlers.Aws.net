@@ -4,9 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Synapse.Aws.Core
+namespace Synapse.Aws.Cli
 {
-    public partial class AwsServices
+    public class Program
     {
+        static void Main(string[] args)
+        {
+        }
     }
 }
