@@ -148,7 +148,8 @@ public class AwsEc2Handler : HandlerRuntimeBase
 
         try
         {
-            _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out string profile );
+            string profile;
+            _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out profile );
             List<Instance> instances = AwsServices.DescribeEc2Instances( null, parms.Region, profile );
             foreach ( Instance instance in instances )
             {
@@ -175,7 +176,8 @@ public class AwsEc2Handler : HandlerRuntimeBase
 
         try
         {
-            _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out string profile );
+            string profile;
+            _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out profile );
             List<Instance> instances = AwsServices.DescribeEc2Instances( null, parms.Region, profile );
             foreach ( Instance instance in instances )
             {
