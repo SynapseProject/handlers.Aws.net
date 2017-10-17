@@ -5,6 +5,8 @@ using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 
+using fs = Alphaleonis.Win32.Filesystem;
+
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
@@ -82,7 +84,7 @@ namespace Synapse.Aws.Core
             if ( type == FileSystemType.File )
             {
                 S3FileInfo file = new S3FileInfo( client, bucketName, objectKey );
-                String localFile = Path.Combine( destination, objectKey );
+                String localFile = fs.Path.Combine( destination, objectKey );
                 if ( copyFrom != null )
                 {
                     if ( !copyFrom.EndsWith( "/" ) )
@@ -90,23 +92,22 @@ namespace Synapse.Aws.Core
                     localFile = localFile.Replace( copyFrom, "" );
                 }
 
-                if ( File.Exists( localFile ) )
-                    File.Delete( localFile );
+                if ( fs.File.Exists( localFile ) )
+                    fs.File.Delete( localFile );
                 file.CopyToLocal( localFile );
-
             }
             else if ( type == FileSystemType.Directory )
             {
                 S3DirectoryInfo dir = new S3DirectoryInfo( client, bucketName, objectKey );
-                String localDir = Path.Combine( destination, objectKey );
+                String localDir = fs.Path.Combine( destination, objectKey );
                 if ( copyFrom != null )
                 {
                     if ( !copyFrom.EndsWith( "/" ) )
                         copyFrom += "/";
                     localDir = localDir.Replace( copyFrom, "" );
                 }
-                if ( !Directory.Exists( localDir ) )
-                    Directory.CreateDirectory( localDir );
+                if ( !fs.Directory.Exists( localDir ) )
+                    fs.Directory.CreateDirectory( localDir );
             }
 
         }
@@ -122,6 +123,46 @@ namespace Synapse.Aws.Core
                     this.CopyObject( obj, destination, prefix );
             }
         }
+
+        public bool Exists (string bucketName, string prefix)
+        {
+            List<S3Object> objects = this.GetObjects( bucketName, prefix );
+            return (objects.Count > 0);
+        }
+
+        public string[] ReadAllLines(string bucketName, string objectKey)
+        {
+            List<String> lines = new List<string>();
+
+            S3FileInfo file = new S3FileInfo( client, bucketName, objectKey );
+            if (file.Exists)
+            {
+                StreamReader reader = file.OpenText();
+                string line = null;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    lines.Add( line );
+                }
+            }
+
+            return lines.ToArray();
+        }
+
+        public string[] GetFiles(string bucketName, string prefix)
+        {
+            List<string> files = new List<string>();
+            List<S3Object> objects = GetObjects( bucketName, prefix );
+           
+            foreach (S3Object obj in objects)
+            {
+                if ( !obj.Key.EndsWith( "/" ) )
+                    files.Add( obj.Key );
+            }
+
+
+            return files.ToArray();
+        }
+
         #endregion Public Methods
     }
 }
