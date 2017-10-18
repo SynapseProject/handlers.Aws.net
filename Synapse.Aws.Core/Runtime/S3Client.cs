@@ -70,12 +70,12 @@ namespace Synapse.Aws.Core
             return response.S3Objects;
         }
 
-        public void CopyObject(S3Object obj, string destination, string copyFrom = null)
+        public void CopyObject(S3Object obj, string destination, string copyFrom = null, Action<string, string> logger = null)
         {
-            CopyObject( obj.BucketName, obj.Key, destination, copyFrom);
+            CopyObject( obj.BucketName, obj.Key, destination, copyFrom, logger);
         }
 
-        public void CopyObject(string bucketName, string objectKey, string destination, string copyFrom = null)
+        public void CopyObject(string bucketName, string objectKey, string destination, string copyFrom = null, Action<string, string> logger = null)
         {
             FileSystemType type = FileSystemType.File;
             if ( objectKey.EndsWith( "/" ) )
@@ -94,7 +94,10 @@ namespace Synapse.Aws.Core
 
                 if ( fs.File.Exists( localFile ) )
                     fs.File.Delete( localFile );
-                file.CopyToLocal( localFile );
+                //file.CopyToLocal( localFile );
+                CopyS3ToLocal( file, localFile );
+                if ( logger != null )
+                    logger( "CopyObject", $"Copied [s3://{bucketName}/{objectKey}] To [{localFile}]." );
             }
             else if ( type == FileSystemType.Directory )
             {
@@ -107,20 +110,40 @@ namespace Synapse.Aws.Core
                     localDir = localDir.Replace( copyFrom, "" );
                 }
                 if ( !fs.Directory.Exists( localDir ) )
+                {
                     fs.Directory.CreateDirectory( localDir );
+                    if ( logger != null )
+                        logger( "CopyObject", $" Copied [s3://{bucketName}/{objectKey}] To [{localDir}]." );
+                }
             }
 
         }
 
-        public void CopyBucketObjects( string bucketName, string destination, string prefix = null, bool keepPrefixFolders = true )
+        public void CopyBucketObjectsToLocal( string bucketName, string destination, string prefix = null, bool keepPrefixFolders = true, Action<string, string> logger = null)
         {
             List<S3Object> objects = this.GetObjects( bucketName, prefix );
             foreach ( S3Object obj in objects )
             {
                 if ( keepPrefixFolders )
-                    this.CopyObject( obj, destination );
+                    this.CopyObject( obj, destination, null, logger );
+                else
+                    this.CopyObject( obj, destination, prefix, logger );
+            }
+        }
+
+        public void MoveBucketObjectsToLocal(string bucketName, string destination, string prefix = null, bool keepPrefixFolders = true, Action<string, string> logger = null)
+        {
+            List<S3Object> objects = this.GetObjects( bucketName, prefix );
+            foreach ( S3Object obj in objects )
+            {
+                if ( keepPrefixFolders )
+                    this.CopyObject( obj, destination, null );
                 else
                     this.CopyObject( obj, destination, prefix );
+
+                client.DeleteObject( bucketName, obj.Key );
+                if ( logger != null )
+                    logger( "MoveBucketObjectsToLocal", $" Moved [s3://{bucketName}/{obj.Key}] To [{destination}]." );
             }
         }
 
@@ -161,6 +184,22 @@ namespace Synapse.Aws.Core
 
 
             return files.ToArray();
+        }
+
+        public void CopyS3ToLocal(S3FileInfo s3File, String localFile)
+        {
+            Stream file = s3File.OpenRead();
+            localFile = localFile.Replace( "/", @"\" );
+            FileStream local = fs.File.OpenWrite( localFile, Alphaleonis.Win32.Filesystem.PathFormat.FullPath );
+
+            file.CopyTo( local );
+        }
+
+        public void CopyLocalToS3(String localFile, S3FileInfo s3File)
+        {
+            FileStream local = fs.File.OpenRead( localFile, Alphaleonis.Win32.Filesystem.PathFormat.FullPath );
+            Stream file = s3File.OpenWrite();
+            local.CopyTo( file );
         }
 
         #endregion Public Methods
