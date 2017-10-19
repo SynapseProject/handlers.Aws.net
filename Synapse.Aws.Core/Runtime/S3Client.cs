@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.IO;
+using System.Text.RegularExpressions;
 
 using fs = Alphaleonis.Win32.Filesystem;
 
@@ -12,6 +13,7 @@ using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Amazon.S3.IO;
+using Amazon.S3.Transfer;
 
 
 namespace Synapse.Aws.Core
@@ -19,6 +21,7 @@ namespace Synapse.Aws.Core
     public class S3Client
     {
         protected AmazonS3Client client;
+        protected TransferUtility transferUtil;
 
         #region Constructors
         public S3Client()
@@ -70,12 +73,28 @@ namespace Synapse.Aws.Core
             return response.S3Objects;
         }
 
-        public void CopyObject(S3Object obj, string destination, string copyFrom = null, Action<string, string> logger = null)
+        public void CopyObject(S3Object obj, string destinationBucket, string destinationPrefix, string copyFrom = null, Action<string, string> logger = null)
         {
-            CopyObject( obj.BucketName, obj.Key, destination, copyFrom, logger);
+            CopyObject( obj.BucketName, obj.Key, destinationBucket, destinationPrefix, copyFrom, logger );
         }
 
-        public void CopyObject(string bucketName, string objectKey, string destination, string copyFrom = null, Action<string, string> logger = null)
+        public void CopyObject(string sourceBucket, string sourceKey, string destinationBucket, string destinationPrefix, string copyFrom = null, Action<string, string> logger = null)
+        {
+            string destinationKey = sourceKey;
+            if ( !String.IsNullOrWhiteSpace( copyFrom ) )
+                destinationKey = destinationPrefix + sourceKey.Replace( copyFrom, "" );
+
+            client.CopyObject( sourceBucket, sourceKey, destinationBucket, destinationKey );
+            if ( logger != null )
+                logger( sourceBucket, $"Copied [s3://{sourceBucket}/{sourceKey}] To [s3://{destinationBucket}/{destinationKey}]." );
+
+        }
+        public void CopyObjectToLocal(S3Object obj, string destination, string copyFrom = null, Action<string, string> logger = null)
+        {
+            CopyObjectToLocal( obj.BucketName, obj.Key, destination, copyFrom, logger);
+        }
+
+        public void CopyObjectToLocal(string bucketName, string objectKey, string destination, string copyFrom = null, Action<string, string> logger = null)
         {
             FileSystemType type = FileSystemType.File;
             if ( objectKey.EndsWith( "/" ) )
@@ -97,7 +116,7 @@ namespace Synapse.Aws.Core
                 //file.CopyToLocal( localFile );
                 CopyS3ToLocal( file, localFile );
                 if ( logger != null )
-                    logger( "CopyObject", $"Copied [s3://{bucketName}/{objectKey}] To [{localFile}]." );
+                    logger( bucketName, $"Copied [s3://{bucketName}/{objectKey}] To [{localFile}]." );
             }
             else if ( type == FileSystemType.Directory )
             {
@@ -113,10 +132,54 @@ namespace Synapse.Aws.Core
                 {
                     fs.Directory.CreateDirectory( localDir );
                     if ( logger != null )
-                        logger( "CopyObject", $" Copied [s3://{bucketName}/{objectKey}] To [{localDir}]." );
+                        logger( bucketName, $" Copied [s3://{bucketName}/{objectKey}] To [{localDir}]." );
                 }
             }
+        }
 
+        public void CreateS3Directory(string bucket, string key, Action<string, string> logger = null)
+        {
+            if ( transferUtil == null )
+                transferUtil = new TransferUtility( client );
+
+            if ( !key.EndsWith( "/" ) )
+                key = key + "/";
+
+            key = key.Replace( '\\', '/' );
+
+            transferUtil.Upload( Stream.Null, bucket, key );
+            if ( logger != null )
+                logger( bucket, $"Created Directory [s3://{bucket}/{key}]." );
+        }
+
+        public void UploadToBucket(string sourceFile, string bucket, string prefix, string copyFrom = null, Action<string, string> logger = null)
+        {
+            if ( transferUtil == null )
+                transferUtil = new TransferUtility( client );
+
+            String key = prefix + "/" + sourceFile;
+            if ( copyFrom != null )
+                key = key.Replace( copyFrom, "" );
+
+            key = key.Replace( '\\', '/' );
+            key = Regex.Replace( key, "//+", "/" );
+
+            transferUtil.Upload( sourceFile, bucket, key );
+
+            if ( logger != null )
+                logger( bucket, $"Copied [{sourceFile}] to [s3://{bucket}/{key}]" );
+        }
+
+        public void CopyBucketObjects( string sourceBucket, string sourcePrefix, string destinationBucket, string destinationPrefix, bool keepPrefixFolders = true, Action<string, string> logger = null)
+        {
+            List<S3Object> objects = this.GetObjects( sourceBucket, sourcePrefix );
+            foreach ( S3Object obj in objects )
+            {
+                if ( keepPrefixFolders )
+                    this.CopyObject( obj, destinationBucket, destinationPrefix, null, logger );
+                else
+                    this.CopyObject( obj, destinationBucket, destinationPrefix, sourcePrefix, logger );
+            }
         }
 
         public void CopyBucketObjectsToLocal( string bucketName, string destination, string prefix = null, bool keepPrefixFolders = true, Action<string, string> logger = null)
@@ -125,9 +188,72 @@ namespace Synapse.Aws.Core
             foreach ( S3Object obj in objects )
             {
                 if ( keepPrefixFolders )
-                    this.CopyObject( obj, destination, null, logger );
+                    this.CopyObjectToLocal( obj, destination, null, logger );
                 else
-                    this.CopyObject( obj, destination, prefix, logger );
+                    this.CopyObjectToLocal( obj, destination, prefix, logger );
+            }
+        }
+
+        public void UploadFilesToBucket(string sourceDir, string bucket, string prefix, Action<string, string> logger = null)
+        {
+            string[] dirs = fs.Directory.GetDirectories( sourceDir, "*", SearchOption.AllDirectories );
+            foreach ( string dir in dirs )
+            {
+                string key = $"{prefix}/{dir.Replace( sourceDir + "\\", "" )}";
+                this.CreateS3Directory( bucket, key, logger );
+            }
+
+            string[] files = fs.Directory.GetFiles( sourceDir, "*", SearchOption.AllDirectories );
+            foreach ( string file in files )
+                this.UploadToBucket( file, bucket, prefix, sourceDir, logger );
+        }
+
+        public void MoveFilesToBucket(string sourceDir, string bucket, string prefix, Action<string, string> logger = null)
+        {
+            string[] files = fs.Directory.GetFiles( sourceDir, "*", SearchOption.AllDirectories );
+            foreach ( string file in files )
+            {
+                this.UploadToBucket( file, bucket, prefix, sourceDir, logger );
+                fs.File.Delete( file );
+                if (logger != null)
+                    logger( bucket, $"Deleted [{file}]." );
+            }
+
+            string[] dirs = fs.Directory.GetDirectories( sourceDir, "*", SearchOption.AllDirectories );
+            foreach ( string dir in dirs )
+            {
+                string key = $"{prefix}/{dir.Replace( sourceDir + "\\", "" )}";
+                this.CreateS3Directory( bucket, key, logger );
+                if ( fs.Directory.Exists( dir ) )
+                    fs.Directory.Delete( dir, true );
+                if ( logger != null )
+                    logger( bucket, $"Deleted [{dir}]." );
+            }
+
+        }
+
+        public void MoveBucketObjects(string sourceBucket, string sourcePrefix, string destinationBucket, string destinationPrefix, bool keepPrefixFolders = true, Action<string, string> logger = null)
+        {
+            List<S3Object> objects = this.GetObjects( sourceBucket, sourcePrefix );
+            foreach ( S3Object obj in objects )
+            {
+                if ( keepPrefixFolders )
+                    this.CopyObject( obj, destinationBucket, destinationPrefix, null, logger );
+                else
+                    this.CopyObject( obj, destinationBucket, destinationPrefix, sourcePrefix, logger );
+
+                // Check If Main Source Directory.  If so, don't delete it.
+                bool deleteObject = true;
+                if ( sourcePrefix != null )
+                    if ( sourcePrefix.Replace( "/", "" ) == obj.Key.Replace( "/", "" ) )
+                        deleteObject = false;
+
+                if ( deleteObject )
+                {
+                    client.DeleteObject( obj.BucketName, obj.Key );
+                    if (logger != null)
+                        logger( obj.BucketName, $"Deleted [s3://{obj.BucketName}/{obj.Key}]" );
+                }
             }
         }
 
@@ -137,13 +263,22 @@ namespace Synapse.Aws.Core
             foreach ( S3Object obj in objects )
             {
                 if ( keepPrefixFolders )
-                    this.CopyObject( obj, destination, null );
+                    this.CopyObjectToLocal( obj, destination, null, logger );
                 else
-                    this.CopyObject( obj, destination, prefix );
+                    this.CopyObjectToLocal( obj, destination, prefix, logger );
 
-                client.DeleteObject( bucketName, obj.Key );
-                if ( logger != null )
-                    logger( "MoveBucketObjectsToLocal", $" Moved [s3://{bucketName}/{obj.Key}] To [{destination}]." );
+                // Check If Main Source Directory.  If so, don't delete it.
+                bool deleteObject = true;
+                if ( prefix != null )
+                    if ( prefix.Replace( "/", "" ) == obj.Key.Replace( "/", "" ) )
+                        deleteObject = false;
+
+                if ( deleteObject )
+                {
+                    client.DeleteObject( obj.BucketName, obj.Key );
+                    if ( logger != null )
+                        logger( obj.BucketName, $"Deleted [s3://{obj.BucketName}/{obj.Key}]" );
+                }
             }
         }
 
@@ -188,6 +323,10 @@ namespace Synapse.Aws.Core
 
         public void CopyS3ToLocal(S3FileInfo s3File, String localFile)
         {
+            string localDir = fs.Path.GetDirectoryName( localFile );
+            if ( !fs.Directory.Exists( localDir ) )
+                fs.Directory.CreateDirectory( localDir );
+
             Stream file = s3File.OpenRead();
             localFile = localFile.Replace( "/", @"\" );
             FileStream local = fs.File.OpenWrite( localFile, Alphaleonis.Win32.Filesystem.PathFormat.FullPath );
