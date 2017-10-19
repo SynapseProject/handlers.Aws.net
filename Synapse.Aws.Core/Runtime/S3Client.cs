@@ -282,6 +282,32 @@ namespace Synapse.Aws.Core
             }
         }
 
+        public void DeleteBucketObjects(string bucketName, string prefix, Action<string, string> logger = null)
+        {
+            List<S3Object> objects = this.GetObjects( bucketName, prefix );
+            foreach ( S3Object obj in objects )
+            {
+
+                // Check If Main Source Directory.  If so, don't delete it.
+                bool deleteObject = true;
+                if ( prefix != null )
+                    if ( prefix.Replace( "/", "" ) == obj.Key.Replace( "/", "" ) )
+                        deleteObject = false;
+
+                if ( deleteObject )
+                {
+                    client.DeleteObject( obj.BucketName, obj.Key );
+                    if ( logger != null )
+                        logger( obj.BucketName, $"Deleted [s3://{obj.BucketName}/{obj.Key}]" );
+                }
+            }
+        }
+
+        public void DeleteBucket(string bucketName)
+        {
+            client.DeleteBucket( bucketName );
+        }
+
         public bool Exists (string bucketName, string prefix)
         {
             List<S3Object> objects = this.GetObjects( bucketName, prefix );
