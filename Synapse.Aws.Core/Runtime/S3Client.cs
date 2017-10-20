@@ -337,7 +337,7 @@ namespace Synapse.Aws.Core
             return lines.ToArray();
         }
 
-        public string[] GetFiles(string bucketName, string prefix)
+        public string[] GetFiles(string bucketName, string prefix, bool returnFullPath = true)
         {
             List<string> files = new List<string>();
             List<S3Object> objects = GetObjects( bucketName, prefix );
@@ -345,7 +345,12 @@ namespace Synapse.Aws.Core
             foreach (S3Object obj in objects)
             {
                 if ( !obj.Key.EndsWith( "/" ) )
-                    files.Add( obj.Key );
+                {
+                    if ( returnFullPath )
+                        files.Add( $"s3://{obj.BucketName}/{obj.Key}" );
+                    else
+                        files.Add( obj.Key );
+                }
             }
 
 
