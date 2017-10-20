@@ -69,7 +69,12 @@ namespace Synapse.Aws.Core
 
         public List<S3Object> GetObjects(string bucketName, string prefix = null)
         {
-            ListObjectsResponse response = (prefix == null) ? client.ListObjects( bucketName ) : client.ListObjects( bucketName, prefix );
+            ListObjectsV2Request request = new ListObjectsV2Request();
+            request.BucketName = bucketName;
+            if ( prefix != null )
+                request.Prefix = prefix;
+
+            ListObjectsV2Response response = client.ListObjectsV2( request );
             return response.S3Objects;
         }
 
