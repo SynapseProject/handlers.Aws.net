@@ -308,6 +308,13 @@ namespace Synapse.Aws.Core
             }
         }
 
+        public void DeleteObject(string bucketName, string key, Action<string, string> logger = null)
+        {
+            client.DeleteObject( bucketName, key );
+            if ( logger != null )
+                logger( bucketName, $"Deleted [s3://{bucketName}/{key}]" );
+        }
+
         public void DeleteBucket(string bucketName)
         {
             client.DeleteBucket( bucketName );
