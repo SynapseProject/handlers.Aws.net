@@ -326,6 +326,44 @@ namespace Synapse.Aws.Core
             return (objects.Count > 0);
         }
 
+        public Stream GetObjectStream(string bucketName, string objectKey, S3FileMode fileMode = S3FileMode.Open, S3FileAccess fileAccess = S3FileAccess.Read)
+        {
+            Stream stream = null;
+            S3FileInfo file = new S3FileInfo( client, bucketName, objectKey );
+            bool fileExists = file.Exists;
+
+            if (fileMode == S3FileMode.Create || fileMode == S3FileMode.CreateNew || fileMode == S3FileMode.Truncate)
+            {
+                if (fileExists)
+                {
+                    if ( fileMode == S3FileMode.CreateNew )
+                        throw new Exception( $"Object [s3://{bucketName}/{objectKey}] Already Exists." );
+                    file.Delete();
+                }
+                else if (fileMode == S3FileMode.Truncate)
+                    throw new Exception( $"Object [s3://{bucketName}/{objectKey}] Does Not Exist." );
+
+                stream = file.Create();
+            }
+            else if (fileMode == S3FileMode.Open || fileMode == S3FileMode.OpenOrCreate)
+            {
+                if (!fileExists)
+                {
+                    if (fileMode == S3FileMode.Open)
+                        throw new Exception( $"Object [s3://{bucketName}/{objectKey}] Does Not Exist." );
+                    stream = file.Create();
+                    stream.Close();
+                }
+
+                if ( fileAccess == S3FileAccess.Read )
+                    stream = file.OpenRead();
+                else
+                    stream = file.OpenWrite();
+            }
+
+            return stream;
+        }
+
         public string[] ReadAllLines(string bucketName, string objectKey)
         {
             List<String> lines = new List<string>();
