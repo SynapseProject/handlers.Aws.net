@@ -1,15 +1,15 @@
-﻿using Amazon.EC2.Model;
+﻿using Amazon.EC2;
+using Amazon.EC2.Model;
 using AutoMapper;
+using Newtonsoft.Json;
 using Synapse.Aws.Core;
 using Synapse.Core;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
-using Amazon.EC2;
-using Newtonsoft.Json;
+using System.Xml.Serialization;
+using YamlDotNet.Serialization;
 using StatusType = Synapse.Core.StatusType;
-
 
 public class AwsEc2Handler : HandlerRuntimeBase
 {
@@ -22,8 +22,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
             AwsEnvironmentProfile = new Dictionary<string, string>
             {
                 { "ENV1", "AWSPROFILE1" },
-                { "ENV2", "AWSPROFILE2" },
-                { "ENV3", "AWSPROFILE3" }
+                { "ENV2", "AWSPROFILE2" }
             }
         };
     }
@@ -38,6 +37,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
     private string _mainProgressMsg = "";
     private string _context = "Execute";
     private bool _encounteredFailure = false;
+    private string _returnFormat = "json";
 
     public override object GetParametersInstance()
     {
@@ -52,8 +52,22 @@ public class AwsEc2Handler : HandlerRuntimeBase
                 Hours = 24,
                 Operator = "ge"
             },
-            MissingTags = new List<string>() { "Name", "Owner", "CostCentre" }
-
+            MissingTags = new List<string>() { "Name", "Owner", "CostCentre" },
+            Filters = new List<Filter>()
+            {
+                new Filter()
+                {
+                    Name = "tag:cloud-environment",
+                    Values = { "XXXXXX", "YYYYYY", "ZZZZZZ" }
+                },
+                new Filter()
+                {
+                    Name = "instance-id",
+                    Values = { "XXXXXX", "YYYYYY", "ZZZZZZ" }
+                }
+            },
+            ReturnFormat = "json",
+            Xslt = ""
         };
     }
 
@@ -64,10 +78,20 @@ public class AwsEc2Handler : HandlerRuntimeBase
         Mapper.Initialize( cfg =>
         {
             cfg.CreateMap<Instance, AwsEc2Instance>()
-            .ForMember( d => d.CostCentre, o => o.MapFrom( s => GetTagValue( "CostCentre", s.Tags ) ) )
-            .ForMember( d => d.Name, o => o.MapFrom( s => GetTagValue( "Name", s.Tags ) ) )
-            .ForMember( d => d.Owner, o => o.MapFrom( s => GetTagValue( "Owner", s.Tags ) ) )
-            .ForMember( d => d.State, o => o.MapFrom( s => s.State.Name ) );
+                .ForMember( d => d.Architecture, o => o.MapFrom( s => s.Architecture ) )
+                .ForMember( d => d.AvailabilityZone, o => o.MapFrom( s => s.Placement.AvailabilityZone ) )
+                .ForMember( d => d.CloudEnvironment, o => o.MapFrom( s => GetTagValue( "cloud-environment", s.Tags ) ) )
+                .ForMember( d => d.CloudEnvironmentFriendlyName, o => o.MapFrom( s => GetTagValue( "cloud-environment-friendly-name", s.Tags ) ) )
+                .ForMember( d => d.CostCentre, o => o.MapFrom( s => GetTagValue( "cost-centre", s.Tags ) ) )
+                .ForMember( d => d.InstanceId, o => o.MapFrom( s => s.InstanceId ) )
+                .ForMember( d => d.InstanceState, o => o.MapFrom( s => s.State.Name ) )
+                .ForMember( d => d.InstanceType, o => o.MapFrom( s => s.InstanceType ) )
+                .ForMember( d => d.Name, o => o.MapFrom( s => GetTagValue( "Name", s.Tags ) ) )
+                .ForMember( d => d.LaunchTime, o => o.MapFrom( s => s.LaunchTime ) )
+                .ForMember( d => d.PrivateDnsName, o => o.MapFrom( s => s.PrivateDnsName ) )
+                .ForMember( d => d.PrivateIpAddress, o => o.MapFrom( s => s.PrivateIpAddress ) )
+                .ForMember( d => d.PublicDnsName, o => o.MapFrom( s => s.PublicDnsName ) )
+                .ForMember( d => d.PublicIpAddress, o => o.MapFrom( s => s.PublicIpAddress ) );
         } );
         return this;
     }
@@ -82,7 +106,6 @@ public class AwsEc2Handler : HandlerRuntimeBase
             UpdateProgress( message, StatusType.Initializing );
             string inputParameters = RemoveParameterSingleQuote( startInfo.Parameters );
             AwsEc2Request parms = DeserializeOrNew<AwsEc2Request>( inputParameters );
-            // OK
 
             message = "Processing request...";
             UpdateProgress( message, StatusType.Running );
@@ -90,18 +113,18 @@ public class AwsEc2Handler : HandlerRuntimeBase
             {
                 if ( IsValidRequest( parms ) )
                 {
-                    if ( parms.RequestType == "instance-uptime" )
-                    {
-                        ProcessInstanceUptimeRequest( parms, startInfo.IsDryRun );
-                    }
-                    if ( parms.RequestType == "missing-tags" )
-                    {
-                        ProcessInstanceMissingTagsRequest( parms, startInfo.IsDryRun );
-                    }
+                    //                    if ( parms.RequestType == "instance-uptime" )
+                    //                    {
+                    //                        ProcessInstanceUptimeRequest( parms, startInfo.IsDryRun );
+                    //                    }
+                    //                    if ( parms.RequestType == "missing-tags" )
+                    //                    {
+                    //                        ProcessInstanceMissingTagsRequest( parms, startInfo.IsDryRun );
+                    //                    }
+                    SetReturnFormat( parms.ReturnFormat );
+                    GetFilteredInstances( parms );
                     message = "Request has been processed" + (_encounteredFailure ? " with error" : "") + ".";
                     UpdateProgress( message, _encounteredFailure ? StatusType.CompletedWithErrors : StatusType.Success );
-                    _response.Summary = message;
-                    // OK
                 }
                 else
                 {
@@ -109,7 +132,6 @@ public class AwsEc2Handler : HandlerRuntimeBase
                     UpdateProgress( message, StatusType.Failed );
                     _encounteredFailure = true;
                     _response.Summary = message;
-                    // OK
                 }
             }
             else
@@ -118,7 +140,6 @@ public class AwsEc2Handler : HandlerRuntimeBase
                 UpdateProgress( message, StatusType.Failed );
                 _encounteredFailure = true;
                 _response.Summary = message;
-                // OK
             }
         }
         catch ( Exception ex )
@@ -127,19 +148,51 @@ public class AwsEc2Handler : HandlerRuntimeBase
             UpdateProgress( message, StatusType.Failed );
             _encounteredFailure = true;
             _response.Summary = message;
-            // OK
         }
-
 
         message = "Serializing response...";
         UpdateProgress( message );
-        _result.ExitData = JsonConvert.SerializeObject( _response );
+        string serializedData = "";
+        if ( _returnFormat == "json" )
+        {
+            serializedData = JsonConvert.SerializeObject( _response );
+        }
+        else if ( _returnFormat == "yaml" )
+        {
+            var serializer = new SerializerBuilder().Build();
+            serializedData = serializer.Serialize( _response );
+        }
+        else if ( _returnFormat == "xml" )
+        {
+            var stringwriter = new System.IO.StringWriter();
+            var serializer = new XmlSerializer( _response.GetType() );
+            serializer.Serialize( stringwriter, _response );
+            serializedData = stringwriter.ToString();
+        }
+        _result.ExitData = serializedData;
         _result.ExitCode = _encounteredFailure ? -1 : 0;
 
-        message = startInfo.IsDryRun ? "Dry run execution is completed." : "Execution is completed.";
-        UpdateProgress( message, StatusType.Any, 0 );
         return _result;
-        // OK
+    }
+
+    private void GetFilteredInstances(AwsEc2Request parms)
+    {
+        List<AwsEc2Instance> resultInstances = new List<AwsEc2Instance>();
+
+        try
+        {
+            _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out string profile );
+            List<Instance> instances = AwsServices.DescribeEc2Instances( parms.Filters, parms.Region, profile );
+            resultInstances = Mapper.Map<List<Instance>, List<AwsEc2Instance>>( instances );
+        }
+        catch ( Exception ex )
+        {
+            _response.Summary = ex.Message;
+            _encounteredFailure = true;
+        }
+
+        _response.Instances = resultInstances;
+        _response.InstanceCount = resultInstances.Count;
     }
 
     private void ProcessInstanceUptimeRequest(AwsEc2Request parms, bool isDryRun = false)
@@ -176,12 +229,11 @@ public class AwsEc2Handler : HandlerRuntimeBase
 
         try
         {
-            string profile;
-            _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out profile );
+            _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out var profile );
             List<Instance> instances = AwsServices.DescribeEc2Instances( null, parms.Region, profile );
             foreach ( Instance instance in instances )
             {
-                if ( HasMissingTags(instance.Tags, parms.MissingTags) )
+                if ( HasMissingTags( instance.Tags, parms.MissingTags ) )
                 {
                     AwsEc2Instance mappedInstance = Mapper.Map<Instance, AwsEc2Instance>( instance );
                     resultInstances.Add( mappedInstance );
@@ -203,7 +255,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
         bool isValid = true;
         if ( parms != null )
         {
-            if ( parms.Region.ToLower() != "all" && !AwsServices.IsValidRegion( parms.Region ) )
+            if ( !AwsServices.IsValidRegion( parms.Region ) )
             {
                 isValid = false;
                 UpdateProgress( "AWS region is not valid.", StatusType.Failed, 0 );
@@ -215,25 +267,44 @@ public class AwsEc2Handler : HandlerRuntimeBase
                 UpdateProgress( "Cloud environment specified can not be found.", StatusType.Failed, 0 );
             }
 
-            if ( !IsValidRequestType( parms.RequestType ) )
-            {
-                isValid = false;
-                UpdateProgress( "Request type is not valid.", StatusType.Failed, 0 );
-            }
+            //            if ( !IsValidRequestType( parms.RequestType ) )
+            //            {
+            //                isValid = false;
+            //                UpdateProgress( "Request type is not valid.", StatusType.Failed, 0 );
+            //            }
 
             if ( !IsValidAction( parms.Action ) )
             {
                 isValid = false;
                 UpdateProgress( "Request action is not valid.", StatusType.Failed, 0 );
             }
-
-            if ( !IsValidFilters( parms ) )
-            {
-                isValid = false;
-                UpdateProgress( "Request filter is not valid.", StatusType.Failed, 0 );
-            }
+            //            if ( !IsValidFilters( parms ) )
+            //            {
+            //                isValid = false;
+            //                UpdateProgress( "Request filter is not valid.", StatusType.Failed, 0 );
+            //            }
         }
         return isValid;
+    }
+
+    public void SetReturnFormat(string format)
+    {
+        if ( string.IsNullOrWhiteSpace( format ) )
+        {
+            _returnFormat = "json";
+        }
+        else if ( String.Equals( format, "json", StringComparison.CurrentCultureIgnoreCase ) )
+        {
+            _returnFormat = "json";
+        }
+        else if ( String.Equals( format, "xml", StringComparison.CurrentCultureIgnoreCase ) )
+        {
+            _returnFormat = "xml";
+        }
+        else if ( String.Equals( format, "yaml", StringComparison.CurrentCultureIgnoreCase ) )
+        {
+            _returnFormat = "yaml";
+        }
     }
 
     public List<Filter> BuildEc2Filter(List<AwsEc2Filter> filters)
@@ -249,31 +320,6 @@ public class AwsEc2Handler : HandlerRuntimeBase
             } );
         }
         return resultFilters;
-    }
-
-    public static List<AwsEc2Instance> MapEc2Instances(IEnumerable<Instance> instances)
-    {
-        List<AwsEc2Instance> mappedInstances = new List<AwsEc2Instance>();
-
-        foreach ( var instance in instances )
-        {
-            mappedInstances.Add( new AwsEc2Instance()
-            {
-                InstanceId = instance.InstanceId,
-                Name = GetTagValue( "Name", instance.Tags ),
-                Owner = GetTagValue( "Owner", instance.Tags ),
-                CostCentre = GetTagValue( "CostCentre", instance.Tags ),
-                InstanceType = instance.InstanceType,
-                LaunchTime = instance.LaunchTime,
-                State = instance.State.Name,
-                PrivateDnsName = instance.PrivateDnsName,
-                PrivateIpAddress = instance.PrivateIpAddress,
-                PublicDnsName = instance.PublicDnsName,
-                PublicIpAddress = instance.PublicIpAddress
-            } );
-        }
-
-        return mappedInstances;
     }
 
     public static string GetTagValue(string tagName, List<Tag> tags)
@@ -340,7 +386,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
         Dictionary<string, int> validRequests = new Dictionary<string, int>()
         {
             { "none", 1 },
-            { "notify", 1 }
+            { "email", 1 }
         };
 
         return string.IsNullOrWhiteSpace( action ) || validRequests.ContainsKey( action );
@@ -356,9 +402,9 @@ public class AwsEc2Handler : HandlerRuntimeBase
             isValid = IsValidInstanceUptimeFilter( request.Uptime );
         }
 
-        if (request.RequestType == "missing-tags")
+        if ( request.RequestType == "missing-tags" )
         {
-            if (request.MissingTags != null)
+            if ( request.MissingTags != null )
             {
                 isValid = request.MissingTags.Count > 0;
             }
@@ -426,9 +472,9 @@ public class AwsEc2Handler : HandlerRuntimeBase
 
         foreach ( Tag tag in tags )
         {
-            foreach (string key in keys)
+            foreach ( string key in keys )
             {
-                if ( tag.Key.ToLower() == key.ToLower() && !string.IsNullOrWhiteSpace( tag.Value ) )
+                if ( String.Equals( tag.Key, key, StringComparison.CurrentCultureIgnoreCase ) && !string.IsNullOrWhiteSpace( tag.Value ) )
                 {
                     foundTags++;
                 }
