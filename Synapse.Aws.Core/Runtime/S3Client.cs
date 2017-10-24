@@ -237,7 +237,7 @@ namespace Synapse.Aws.Core
 
         }
 
-        public void MoveBucketObjects(string sourceBucket, string sourcePrefix, string destinationBucket, string destinationPrefix, bool keepPrefixFolders = true, Action<string, string> logger = null)
+        public void MoveBucketObjects(string sourceBucket, string sourcePrefix, string destinationBucket, string destinationPrefix, bool keepPrefixFolders = true, bool keepSourceFolder = false, Action<string, string> logger = null)
         {
             List<S3Object> objects = this.GetObjects( sourceBucket, sourcePrefix );
             foreach ( S3Object obj in objects )
@@ -250,7 +250,7 @@ namespace Synapse.Aws.Core
                 // Check If Main Source Directory.  If so, don't delete it.
                 bool deleteObject = true;
                 if ( sourcePrefix != null )
-                    if ( sourcePrefix.Replace( "/", "" ) == obj.Key.Replace( "/", "" ) )
+                    if ( (sourcePrefix.Replace( "/", "" ) == obj.Key.Replace( "/", "" )) && keepSourceFolder )
                         deleteObject = false;
 
                 if ( deleteObject )
@@ -413,6 +413,7 @@ namespace Synapse.Aws.Core
             FileStream local = fs.File.OpenWrite( localFile, Alphaleonis.Win32.Filesystem.PathFormat.FullPath );
 
             file.CopyTo( local );
+            local.Close();
         }
 
         public void CopyLocalToS3(String localFile, S3FileInfo s3File)
