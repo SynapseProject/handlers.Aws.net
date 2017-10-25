@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using Amazon.EC2.Model;
 
-public class AwsEc2Request
+public class Ec2Request
 {
     public string Action { get; set; }
 

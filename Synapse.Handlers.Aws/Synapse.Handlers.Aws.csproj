@@ -58,14 +58,15 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="AwsEc2Filter.cs" />
-    <Compile Include="AwsEc2Instance.cs" />
-    <Compile Include="AwsEc2Request.cs" />
-    <Compile Include="AwsEc2Response.cs" />
-    <Compile Include="AwsEc2Handler.cs" />
-    <Compile Include="AwsHandlerConfig.cs" />
+    <Compile Include="Ec2Filter.cs" />
+    <Compile Include="Ec2Instance.cs" />
+    <Compile Include="Ec2Request.cs" />
+    <Compile Include="Ec2Response.cs" />
+    <Compile Include="Ec2Handler.cs" />
+    <Compile Include="HandlerConfig.cs" />
     <Compile Include="Ec2InstanceUptimeFilter.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Utilities.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

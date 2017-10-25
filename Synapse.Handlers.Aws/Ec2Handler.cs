@@ -11,12 +11,12 @@ using System.Xml.Serialization;
 using YamlDotNet.Serialization;
 using StatusType = Synapse.Core.StatusType;
 
-public class AwsEc2Handler : HandlerRuntimeBase
+public class Ec2Handler : HandlerRuntimeBase
 {
-    private AwsHandlerConfig _config;
+    private HandlerConfig _config;
     public override object GetConfigInstance()
     {
-        return new AwsHandlerConfig
+        return new HandlerConfig
         {
             SmtpServer = "xxxxxx.xxx.com",
             AwsEnvironmentProfile = new Dictionary<string, string>
@@ -32,7 +32,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
         BranchStatus = StatusType.None,
         Sequence = int.MaxValue
     };
-    private readonly AwsEc2Response _response = new AwsEc2Response();
+    private readonly Ec2Response _response = new Ec2Response();
     private int _sequenceNumber = 0;
     private string _mainProgressMsg = "";
     private string _context = "Execute";
@@ -41,7 +41,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
 
     public override object GetParametersInstance()
     {
-        return new AwsEc2Request()
+        return new Ec2Request()
         {
             Region = "eu-west-1",
             CloudEnvironment = "XXXXXX",
@@ -73,11 +73,11 @@ public class AwsEc2Handler : HandlerRuntimeBase
 
     public override IHandlerRuntime Initialize(string values)
     {
-        _config = DeserializeOrNew<AwsHandlerConfig>( values );
+        _config = DeserializeOrNew<HandlerConfig>( values );
 
         Mapper.Initialize( cfg =>
         {
-            cfg.CreateMap<Instance, AwsEc2Instance>()
+            cfg.CreateMap<Instance, Ec2Instance>()
                 .ForMember( d => d.Architecture, o => o.MapFrom( s => s.Architecture ) )
                 .ForMember( d => d.AvailabilityZone, o => o.MapFrom( s => s.Placement.AvailabilityZone ) )
                 .ForMember( d => d.CloudEnvironment, o => o.MapFrom( s => GetTagValue( "cloud-environment", s.Tags ) ) )
@@ -105,7 +105,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
             message = "Deserializing incoming request...";
             UpdateProgress( message, StatusType.Initializing );
             string inputParameters = RemoveParameterSingleQuote( startInfo.Parameters );
-            AwsEc2Request parms = DeserializeOrNew<AwsEc2Request>( inputParameters );
+            Ec2Request parms = DeserializeOrNew<Ec2Request>( inputParameters );
 
             message = "Processing request...";
             UpdateProgress( message, StatusType.Running );
@@ -175,16 +175,16 @@ public class AwsEc2Handler : HandlerRuntimeBase
         return _result;
     }
 
-    private void GetFilteredInstances(AwsEc2Request parms)
+    private void GetFilteredInstances(Ec2Request parms)
     {
-        List<AwsEc2Instance> resultInstances = new List<AwsEc2Instance>();
+        List<Ec2Instance> resultInstances = new List<Ec2Instance>();
 
         try
         {
             string profile;
             _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out profile );
             List<Instance> instances = AwsServices.DescribeEc2Instances( parms.Filters, parms.Region, profile );
-            resultInstances = Mapper.Map<List<Instance>, List<AwsEc2Instance>>( instances );
+            resultInstances = Mapper.Map<List<Instance>, List<Ec2Instance>>( instances );
         }
         catch ( Exception ex )
         {
@@ -192,13 +192,13 @@ public class AwsEc2Handler : HandlerRuntimeBase
             _encounteredFailure = true;
         }
 
-        _response.Instances = resultInstances;
-        _response.InstanceCount = resultInstances.Count;
+        _response.Ec2Instances = resultInstances;
+        _response.Count = resultInstances.Count;
     }
 
-    private void ProcessInstanceUptimeRequest(AwsEc2Request parms, bool isDryRun = false)
+    private void ProcessInstanceUptimeRequest(Ec2Request parms, bool isDryRun = false)
     {
-        List<AwsEc2Instance> resultInstances = new List<AwsEc2Instance>();
+        List<Ec2Instance> resultInstances = new List<Ec2Instance>();
 
         try
         {
@@ -209,7 +209,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
             {
                 if ( instance.State.Name == InstanceStateName.Running && InstanceUpFor( instance.LaunchTime, parms.Uptime.Hours, parms.Uptime.Operator ) )
                 {
-                    AwsEc2Instance mappedInstance = Mapper.Map<Instance, AwsEc2Instance>( instance );
+                    Ec2Instance mappedInstance = Mapper.Map<Instance, Ec2Instance>( instance );
                     resultInstances.Add( mappedInstance );
                 }
             }
@@ -220,13 +220,13 @@ public class AwsEc2Handler : HandlerRuntimeBase
             _encounteredFailure = true;
         }
 
-        _response.Instances = resultInstances;
-        _response.InstanceCount = resultInstances.Count;
+        _response.Ec2Instances = resultInstances;
+        _response.Count = resultInstances.Count;
     }
 
-    private void ProcessInstanceMissingTagsRequest(AwsEc2Request parms, bool isDryRun = false)
+    private void ProcessInstanceMissingTagsRequest(Ec2Request parms, bool isDryRun = false)
     {
-        List<AwsEc2Instance> resultInstances = new List<AwsEc2Instance>();
+        List<Ec2Instance> resultInstances = new List<Ec2Instance>();
 
         try
         {
@@ -237,7 +237,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
             {
                 if ( HasMissingTags( instance.Tags, parms.MissingTags ) )
                 {
-                    AwsEc2Instance mappedInstance = Mapper.Map<Instance, AwsEc2Instance>( instance );
+                    Ec2Instance mappedInstance = Mapper.Map<Instance, Ec2Instance>( instance );
                     resultInstances.Add( mappedInstance );
                 }
             }
@@ -248,11 +248,11 @@ public class AwsEc2Handler : HandlerRuntimeBase
             _encounteredFailure = true;
         }
 
-        _response.Instances = resultInstances;
-        _response.InstanceCount = resultInstances.Count;
+        _response.Ec2Instances = resultInstances;
+        _response.Count = resultInstances.Count;
     }
 
-    private bool IsValidRequest(AwsEc2Request parms)
+    private bool IsValidRequest(Ec2Request parms)
     {
         bool isValid = true;
         if ( parms != null )
@@ -309,7 +309,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
         }
     }
 
-    public List<Filter> BuildEc2Filter(List<AwsEc2Filter> filters)
+    public List<Filter> BuildEc2Filter(List<Ec2Filter> filters)
     {
         var resultFilters = new List<Filter>();
 
@@ -394,7 +394,7 @@ public class AwsEc2Handler : HandlerRuntimeBase
         return string.IsNullOrWhiteSpace( action ) || validRequests.ContainsKey( action );
     }
 
-    private bool IsValidFilters(AwsEc2Request request)
+    private bool IsValidFilters(Ec2Request request)
     {
         bool isValid = false;
 

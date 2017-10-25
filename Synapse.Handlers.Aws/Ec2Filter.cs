@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-public class AwsEc2Filter
+public class Ec2Filter
 {
     public string Name { get; set; }
     public List<string> Values { get; set; }

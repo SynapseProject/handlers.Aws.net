@@ -1,6 +1,6 @@
 ﻿using System;
 
-public class AwsEc2Instance
+public class Ec2Instance
 {
     public string Architecture { get; set; }
 
