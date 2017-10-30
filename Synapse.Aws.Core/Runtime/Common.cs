@@ -38,7 +38,7 @@ namespace Synapse.Aws.Core
 
         public static bool IsValidRegion(string region)
         {
-            return !RegionEndpoint.GetBySystemName(region).DisplayName.Contains("Unknown");
+            return !string.IsNullOrWhiteSpace(region) && !RegionEndpoint.GetBySystemName(region).DisplayName.Contains("Unknown");
         }
     }
 }

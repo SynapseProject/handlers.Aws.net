@@ -6,10 +6,15 @@ using Synapse.Aws.Core;
 using Synapse.Core;
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
+using System.Dynamic;
+using System.IO;
+using System.Text;
+using System.Xml;
 using System.Xml.Serialization;
+using Newtonsoft.Json.Converters;
 using YamlDotNet.Serialization;
 using StatusType = Synapse.Core.StatusType;
+using Synapse.Handlers.Aws;
 
 public class Ec2Handler : HandlerRuntimeBase
 {
@@ -37,7 +42,7 @@ public class Ec2Handler : HandlerRuntimeBase
     private string _mainProgressMsg = "";
     private string _context = "Execute";
     private bool _encounteredFailure = false;
-    private string _returnFormat = "json";
+    private string _returnFormat = "json"; // Default return format
 
     public override object GetParametersInstance()
     {
@@ -99,98 +104,52 @@ public class Ec2Handler : HandlerRuntimeBase
     public override ExecuteResult Execute(HandlerStartInfo startInfo)
     {
         string message;
-
+        string xslt = "";
         try
         {
             message = "Deserializing incoming request...";
             UpdateProgress( message, StatusType.Initializing );
-            string inputParameters = RemoveParameterSingleQuote( startInfo.Parameters );
+            string inputParameters = Utilities.RemoveParameterSingleQuote( startInfo.Parameters );
             Ec2Request parms = DeserializeOrNew<Ec2Request>( inputParameters );
 
             message = "Processing request...";
             UpdateProgress( message, StatusType.Running );
-            if ( parms != null )
-            {
-                if ( IsValidRequest( parms ) )
-                {
-                    //                    if ( parms.RequestType == "instance-uptime" )
-                    //                    {
-                    //                        ProcessInstanceUptimeRequest( parms, startInfo.IsDryRun );
-                    //                    }
-                    //                    if ( parms.RequestType == "missing-tags" )
-                    //                    {
-                    //                        ProcessInstanceMissingTagsRequest( parms, startInfo.IsDryRun );
-                    //                    }
-                    SetReturnFormat( parms.ReturnFormat );
-                    GetFilteredInstances( parms );
-                    message = "Request has been processed" + (_encounteredFailure ? " with error" : "") + ".";
-                    UpdateProgress( message, _encounteredFailure ? StatusType.CompletedWithErrors : StatusType.Success );
-                }
-                else
-                {
-                    message = "Request contains invalid detail.";
-                    UpdateProgress( message, StatusType.Failed );
-                    _encounteredFailure = true;
-                    _response.Summary = message;
-                }
-            }
-            else
-            {
-                message = "No parameter is found in the request.";
-                UpdateProgress( message, StatusType.Failed );
-                _encounteredFailure = true;
-                _response.Summary = message;
-            }
+            ValidateRequest( parms );
+            xslt = parms.Xslt;
+            GetFilteredInstances( parms );
+
+            message = "Querying against AWS has been processed" + (_encounteredFailure ? " with error" : "") + ".";
+            UpdateProgress( message, _encounteredFailure ? StatusType.CompletedWithErrors : StatusType.Success );
+            _response.Summary = message;
+            _response.ExitCode = _encounteredFailure ? -1 : 0;
+            // xslt = File.ReadAllText( @"c:\temp\XML Essentials\matchingec2.xslt" );
         }
         catch ( Exception ex )
         {
-            message = $"Execution has been aborted due to: {ex.Message}";
-            UpdateProgress( message, StatusType.Failed );
+            UpdateProgress( ex.Message, StatusType.Failed );
             _encounteredFailure = true;
-            _response.Summary = message;
+            _response.Summary = ex.Message;
+            _response.ExitCode = -1;
         }
-
-        message = "Serializing response...";
-        UpdateProgress( message );
-        string serializedData = "";
-        if ( _returnFormat == "json" )
+        finally
         {
-            serializedData = JsonConvert.SerializeObject( _response );
+            message = "Serializing response...";
+            UpdateProgress( message );
+            string xmlResponse = Utilities.SerializeXmlResponse( _response );
+            string transformedXml = Utilities.TransformXml( xmlResponse, xslt );
+            string serializedData = Utilities.SerializeTargetFormat( transformedXml, _returnFormat );
+            _result.ExitData = serializedData;
         }
-        else if ( _returnFormat == "yaml" )
-        {
-            var serializer = new SerializerBuilder().Build();
-            serializedData = serializer.Serialize( _response );
-        }
-        else if ( _returnFormat == "xml" )
-        {
-            var stringwriter = new System.IO.StringWriter();
-            var serializer = new XmlSerializer( _response.GetType() );
-            serializer.Serialize( stringwriter, _response );
-            serializedData = stringwriter.ToString();
-        }
-        _result.ExitData = serializedData;
-        _result.ExitCode = _encounteredFailure ? -1 : 0;
 
         return _result;
     }
 
     private void GetFilteredInstances(Ec2Request parms)
     {
-        List<Ec2Instance> resultInstances = new List<Ec2Instance>();
-
-        try
-        {
-            string profile;
-            _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out profile );
-            List<Instance> instances = AwsServices.DescribeEc2Instances( parms.Filters, parms.Region, profile );
-            resultInstances = Mapper.Map<List<Instance>, List<Ec2Instance>>( instances );
-        }
-        catch ( Exception ex )
-        {
-            _response.Summary = ex.Message;
-            _encounteredFailure = true;
-        }
+        string profile;
+        _config.AwsEnvironmentProfile.TryGetValue( parms.CloudEnvironment, out profile );
+        List<Instance> instances = AwsServices.DescribeEc2Instances( parms.Filters, parms.Region, profile );
+        List<Ec2Instance> resultInstances = Mapper.Map<List<Instance>, List<Ec2Instance>>( instances );
 
         _response.Ec2Instances = resultInstances;
         _response.Count = resultInstances.Count;
@@ -252,61 +211,66 @@ public class Ec2Handler : HandlerRuntimeBase
         _response.Count = resultInstances.Count;
     }
 
-    private bool IsValidRequest(Ec2Request parms)
+    private void ValidateRequest(Ec2Request parms)
     {
-        bool isValid = true;
         if ( parms != null )
         {
             if ( !AwsServices.IsValidRegion( parms.Region ) )
             {
-                isValid = false;
-                UpdateProgress( "AWS region is not valid.", StatusType.Failed, 0 );
+                throw new Exception( "AWS region is not valid." );
             }
-
-            if ( !_config.AwsEnvironmentProfile.ContainsKey( parms.CloudEnvironment ) )
+            if ( !IsValidCloudEnvironment( parms.CloudEnvironment ) )
             {
-                isValid = false;
-                UpdateProgress( "Cloud environment specified can not be found.", StatusType.Failed, 0 );
+                throw new Exception( "Cloud environment can not be found." );
             }
-
-            //            if ( !IsValidRequestType( parms.RequestType ) )
-            //            {
-            //                isValid = false;
-            //                UpdateProgress( "Request type is not valid.", StatusType.Failed, 0 );
-            //            }
-
             if ( !IsValidAction( parms.Action ) )
             {
-                isValid = false;
-                UpdateProgress( "Request action is not valid.", StatusType.Failed, 0 );
+                throw new Exception( "Request action is not valid." );
             }
-            //            if ( !IsValidFilters( parms ) )
-            //            {
-            //                isValid = false;
-            //                UpdateProgress( "Request filter is not valid.", StatusType.Failed, 0 );
-            //            }
+            if ( !SetReturnFormat( parms.ReturnFormat ) )
+            {
+                throw new Exception( "Valid return formats are json, xml or yaml." );
+            }
+            if ( !Utilities.IsValidXml( parms.Xslt ) )
+            {
+                throw new Exception( "XSLT is not well-formed." );
+            }
         }
-        return isValid;
+        else
+        {
+            throw new Exception( "No parameter is found in the request." );
+        }
     }
 
-    public void SetReturnFormat(string format)
+    private bool IsValidCloudEnvironment(string environment)
     {
+        return !string.IsNullOrWhiteSpace( environment ) && _config.AwsEnvironmentProfile.ContainsKey( environment );
+    }
+
+    public bool SetReturnFormat(string format)
+    {
+        bool isValid = true;
         if ( string.IsNullOrWhiteSpace( format ) )
         {
             _returnFormat = "json";
         }
-        else if ( String.Equals( format, "json", StringComparison.CurrentCultureIgnoreCase ) )
+        else if ( string.Equals( format, "json", StringComparison.CurrentCultureIgnoreCase ) )
         {
             _returnFormat = "json";
         }
-        else if ( String.Equals( format, "xml", StringComparison.CurrentCultureIgnoreCase ) )
+        else if ( string.Equals( format, "xml", StringComparison.CurrentCultureIgnoreCase ) )
         {
             _returnFormat = "xml";
         }
-        else if ( String.Equals( format, "yaml", StringComparison.CurrentCultureIgnoreCase ) )
+        else if ( string.Equals( format, "yaml", StringComparison.CurrentCultureIgnoreCase ) )
         {
             _returnFormat = "yaml";
         }
+        else
+        {
+            isValid = false;
+        }
+        return isValid;
     }
 
     public List<Filter> BuildEc2Filter(List<Ec2Filter> filters)
@@ -342,17 +306,6 @@ public class Ec2Handler : HandlerRuntimeBase
         return tagValue;
     }
 
-    private static string RemoveParameterSingleQuote(string input)
-    {
-        string output = "";
-        if ( !string.IsNullOrWhiteSpace( input ) )
-        {
-            Regex pattern = new Regex( "'(\r\n|\r|\n|$)" );
-            output = input.Replace( ": '", ": " );
-            output = pattern.Replace( output, Environment.NewLine );
-        }
-        return output;
-    }
 
     private void UpdateProgress(string message, StatusType status = StatusType.Any, int seqNum = -1)
     {
@@ -387,11 +340,10 @@ public class Ec2Handler : HandlerRuntimeBase
     {
         Dictionary<string, int> validRequests = new Dictionary<string, int>()
         {
-            { "none", 1 },
-            { "email", 1 }
+            { "none", 1 }
         };
 
-        return string.IsNullOrWhiteSpace( action ) || validRequests.ContainsKey( action );
+        return string.IsNullOrWhiteSpace( action ) || validRequests.ContainsKey( action.ToLower() );
     }
 
     private bool IsValidFilters(Ec2Request request)
