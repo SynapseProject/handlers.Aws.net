@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Dynamic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Xml;
 using System.Xml.Serialization;
@@ -122,7 +123,6 @@ public class Ec2Handler : HandlerRuntimeBase
             UpdateProgress( message, _encounteredFailure ? StatusType.CompletedWithErrors : StatusType.Success );
             _response.Summary = message;
             _response.ExitCode = _encounteredFailure ? -1 : 0;
-            // xslt = File.ReadAllText( @"c:\temp\XML Essentials\matchingec2.xslt" );
         }
         catch ( Exception ex )
         {
@@ -135,10 +135,17 @@ public class Ec2Handler : HandlerRuntimeBase
         {
             message = "Serializing response...";
             UpdateProgress( message );
-            string xmlResponse = Utilities.SerializeXmlResponse( _response );
-            string transformedXml = Utilities.TransformXml( xmlResponse, xslt );
-            string serializedData = Utilities.SerializeTargetFormat( transformedXml, _returnFormat );
-            _result.ExitData = serializedData;
+            try
+            {
+                string xmlResponse = Utilities.SerializeXmlResponse( _response );
+                string transformedXml = Utilities.TransformXml( xmlResponse, xslt );
+                string serializedData = Utilities.SerializeTargetFormat( transformedXml, _returnFormat );
+                _result.ExitData = serializedData;
+            }
+            catch ( Exception ex )
+            {
+                _result.ExitData = ex.Message;
+            }
         }
 
         return _result;
@@ -213,7 +220,7 @@ public class Ec2Handler : HandlerRuntimeBase
 
     private void ValidateRequest(Ec2Request parms)
     {
-        if ( parms != null )
+        if ( !IsNullRequest( parms ) )
         {
             if ( !AwsServices.IsValidRegion( parms.Region ) )
             {
@@ -240,6 +247,17 @@ public class Ec2Handler : HandlerRuntimeBase
         {
             throw new Exception( "No parameter is found in the request." );
         }
+    }
+
+    private bool IsNullRequest(Ec2Request parms)
+    {
+        bool isNull = true;
+
+        if ( parms != null )
+        {
+            isNull = parms.GetType().GetProperties().All( p => p.GetValue( parms ) == null );
+        }
+        return isNull;
     }
 
     private bool IsValidCloudEnvironment(string environment)

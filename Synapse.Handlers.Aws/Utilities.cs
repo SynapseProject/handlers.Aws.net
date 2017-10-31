@@ -69,7 +69,8 @@ namespace Synapse.Handlers.Aws
                 {
                     XmlDocument doc = new XmlDocument();
                     doc.LoadXml( inputXml );
-                    doc.RemoveChild( doc.FirstChild ); // Remove XML declaration
+                    if ( doc.FirstChild.NodeType == XmlNodeType.XmlDeclaration )
+                        doc.RemoveChild( doc.FirstChild );
                     serializedData = JsonConvert.SerializeXmlNode( doc );
                 }
                 else if ( string.Equals( format, "yaml", StringComparison.CurrentCultureIgnoreCase ) )
@@ -93,7 +94,7 @@ namespace Synapse.Handlers.Aws
             return serializedData;
         }
 
-        public static string SerializeXmlResponse(Ec2Response response)
+        public static string SerializeXmlResponse(object response)
         {
             string serializedData = "";
             XmlSerializer serializer = new XmlSerializer( response.GetType() );
