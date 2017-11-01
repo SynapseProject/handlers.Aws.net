@@ -57,7 +57,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Classes\Enums.cs" />
-    <Compile Include="Runtime\Ec2.cs" />
+    <Compile Include="Runtime\Ec2Client.cs" />
     <Compile Include="Runtime\Common.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Runtime\S3Client.cs" />
