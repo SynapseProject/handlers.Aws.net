@@ -110,9 +110,7 @@ public class Ec2Handler : HandlerRuntimeBase
         {
             message = "Deserializing incoming request...";
             UpdateProgress( message, StatusType.Initializing );
-            // string inputParameters = Utilities.RemoveParameterSingleQuote( startInfo.Parameters );
-            string inputParameters = startInfo.Parameters;
-            Ec2Request parms = DeserializeOrNew<Ec2Request>( inputParameters );
+            Ec2Request parms = DeserializeOrNew<Ec2Request>( startInfo.Parameters );
 
             message = "Processing request...";
             UpdateProgress( message, StatusType.Running );
